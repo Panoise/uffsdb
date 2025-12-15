@@ -38,6 +38,11 @@ rc_insert GLOBAL_DATA;
 */
 inf_query QUERY;
 
+/*
+  Informações da operação update.
+*/
+inf_update UPDATE_DATA;
+
 /* Estrutura auxiliar do reconhecedor.
  */
 rc_parser GLOBAL_PARSER;
@@ -213,8 +218,90 @@ void resetQuery() {
     }
 }
 
+void resetUpdateData() {
+    if(getMode() == OP_UPDATE) {
+        if(UPDATE_DATA.tabela) {
+            free(UPDATE_DATA.tabela);
+            UPDATE_DATA.tabela = NULL;
+        }
+        
+        for(int i = 0; i < UPDATE_DATA.count; i++) {
+            if(UPDATE_DATA.colunas) free(UPDATE_DATA.colunas[i]);
+            if(UPDATE_DATA.values) free(UPDATE_DATA.values[i]);
+        }
+        
+        if(UPDATE_DATA.colunas) {
+            free(UPDATE_DATA.colunas);
+            UPDATE_DATA.colunas = NULL;
+        }
+        
+        if(UPDATE_DATA.values) {
+            free(UPDATE_DATA.values);
+            UPDATE_DATA.values = NULL;
+        }
+        
+        if(UPDATE_DATA.types) {
+            free(UPDATE_DATA.types);
+            UPDATE_DATA.types = NULL;
+        }
+        
+        UPDATE_DATA.count = 0;
+        
+        // Reseta WHERE também
+        if(QUERY.tok) limparLista(QUERY.tok);
+        QUERY.tok = NULL;
+    }
+}
+
+void setTableUpdate(char *nome) {
+    UPDATE_DATA.tabela = malloc(sizeof(char) * (strlen(nome) + 1));
+    strcpylower(UPDATE_DATA.tabela, nome);
+    UPDATE_DATA.tabela[strlen(nome)] = '\0';
+
+    // Utilizando a mesma variável global para WHERE
+    if(QUERY.tabela) free(QUERY.tabela);
+    QUERY.tabela = malloc(sizeof(char) * (strlen(nome) + 1));
+    strcpylower(QUERY.tabela, nome);
+    QUERY.tabela[strlen(nome)] = '\0';
+}
+
+void setUpdateColumn(char *col) {
+    UPDATE_DATA.colunas = realloc(UPDATE_DATA.colunas, 
+                                   (UPDATE_DATA.count + 1) * sizeof(char*));
+    
+    UPDATE_DATA.colunas[UPDATE_DATA.count] = malloc(sizeof(char) * (strlen(col) + 1));
+    strcpylower(UPDATE_DATA.colunas[UPDATE_DATA.count], col);
+    UPDATE_DATA.colunas[UPDATE_DATA.count][strlen(col)] = '\0';
+}
+
+void setUpdateValue(char *val, char type) {
+    UPDATE_DATA.values = realloc(UPDATE_DATA.values, 
+                                   (UPDATE_DATA.count + 1) * sizeof(char*));
+    UPDATE_DATA.types = realloc(UPDATE_DATA.types, 
+                                 (UPDATE_DATA.count + 1) * sizeof(char));
+    
+    UPDATE_DATA.values[UPDATE_DATA.count] = malloc(sizeof(char) * (strlen(val) + 1));
+    
+    if (type == 'S') {
+        int i;
+        for (i = 1; i < strlen(val)-1; i++) {
+            UPDATE_DATA.values[UPDATE_DATA.count][i-1] = val[i];
+        }
+        UPDATE_DATA.values[UPDATE_DATA.count][strlen(val)-2] = '\0';
+    } else {
+        strcpy(UPDATE_DATA.values[UPDATE_DATA.count], val);
+        UPDATE_DATA.values[UPDATE_DATA.count][strlen(val)] = '\0';
+    }
+    
+    UPDATE_DATA.types[UPDATE_DATA.count] = type;
+    
+    UPDATE_DATA.count++;
+}
+
 void clearGlobalStructs() {
     resetQuery();
+    resetUpdateData();
+
     if (GLOBAL_DATA.objName) {
         GLOBAL_DATA.objName = NULL;
     }
@@ -314,6 +401,13 @@ int interface() {
                             break;
                         case OP_CREATE_INDEX:
                             createIndex(&GLOBAL_DATA);
+                            break;
+                        case OP_UPDATE:
+                            resultado = handleTableOperation(&QUERY, 'd');
+                            if (resultado) {
+                                op_update(resultado, &UPDATE_DATA);
+                                resultado = NULL;
+                            }
                             break;
                         default: break;
                     }

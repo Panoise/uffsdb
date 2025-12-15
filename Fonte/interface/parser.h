@@ -13,6 +13,7 @@
 #define OP_SELECT 		      6
 #define OP_CREATE_INDEX     7
 #define OP_DELETE           8
+#define OP_UPDATE           9
 
 #ifndef FCOMMANDHANDLER
    #include "commandHandler.h"
@@ -141,3 +142,22 @@ char getMode();
 * op1: grava o histórico
 */
 void quit(int flag);
+
+/*
+  Reseta as estruturas da estrutura UPDATE.
+*/
+void resetUpdateData();
+
+/*
+  Define o nome da tabela onde será realizado o update.
+*/
+void setTableUpdate(char *nome);
+
+/*
+  Define a coluna que será atualizada.
+*/
+void setUpdateColumn(char *col);
+/*
+  Define o valor que será atualizado.
+*/
+void setUpdateValue(char *val, char type);

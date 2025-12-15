@@ -211,24 +211,29 @@ int verificaChaveFK(char *nomeTabela,column *c, char *nomeCampo, char *valorCamp
     char str[20];
     char dat[5] = ".dat";
     struct fs_objects objeto;
-    tp_table *tabela;
-    tp_buffer *bufferpoll;
+    tp_table *tabela = NULL;
+    tp_buffer *bufferpoll = NULL;
     tupla *pagina = NULL;
 
     strcpylower(str, tabelaApt);
     strcat(str, dat);              //Concatena e junta o nome com .dat
 
-    erro = existeAtributo(nomeTabela, c);
-
-    if(iniciaAtributos(&objeto, &tabela, &bufferpoll, tabelaApt) != SUCCESS) {
+    // Primeiro inicializa os atributos antes de qualquer verificação que dependa deles
+    if (iniciaAtributos(&objeto, &tabela, &bufferpoll, tabelaApt) != SUCCESS) {
+        if (bufferpoll) uffsFree(TEMPORARY);
+        if (tabela) free(tabela);
         return ERRO_DE_PARAMETRO;
     }
+
+    // Verifica se o atributo existe na tabela de origem de forma segura após inicialização
+    erro = existeAtributo(nomeTabela, c);
 
     erro = SUCCESS;
     for(x = 0; erro == SUCCESS; x++)
         erro = colocaTuplaBuffer(bufferpoll, x, tabela, objeto);
 
     for (page = 0; page < PAGES; page++) {
+        if (pagina) free(pagina);
         pagina = getPage(bufferpoll, tabela, objeto, page);
         if (!pagina) break;
         /*
@@ -244,12 +249,18 @@ int verificaChaveFK(char *nomeTabela,column *c, char *nomeCampo, char *valorCamp
 
                         if(c->tipoCampo == 'S'){
                             if(objcmp(c->valorCampo, valorCampo) == 0){
+                                if (pagina) free(pagina);
+                                if (bufferpoll) uffsFree(TEMPORARY);
+                                if (tabela) free(tabela);
                                 return SUCCESS;
                             }
                         }
                         else if(c->tipoCampo == 'I'){
                             int *n = (int *)&c->valorCampo[0];
                             if(*n == atoi(valorCampo)){
+                                if (pagina) free(pagina);
+                                if (bufferpoll) uffsFree(TEMPORARY);
+                                if (tabela) free(tabela);
                                 return SUCCESS;
                             }
                         }
@@ -257,21 +268,33 @@ int verificaChaveFK(char *nomeTabela,column *c, char *nomeCampo, char *valorCamp
                             double *nn = (double *)&c->valorCampo[0];
 
                             if(*nn == atof(valorCampo)){
+                                if (pagina) free(pagina);
+                                if (bufferpoll) uffsFree(TEMPORARY);
+                                if (tabela) free(tabela);
                                 return SUCCESS;
                             }
                         }
                         else if(c->tipoCampo == 'C'){
                             if(c->valorCampo == valorCampo){
+                                if (pagina) free(pagina);
+                                if (bufferpoll) free(bufferpoll);
+                                if (tabela) free(tabela);
                                 return SUCCESS;
                             }
                         }
                         else {
+                            if (pagina) free(pagina);
+                            if (bufferpoll) uffsFree(TEMPORARY);
+                            if (tabela) free(tabela);
                             return ERRO_CHAVE_ESTRANGEIRA;
                         }
                     }
                 }
         }
     }
+    if (pagina) free(pagina);
+    if (bufferpoll) uffsFree(TEMPORARY);
+    if (tabela) free(tabela);
     return ERRO_CHAVE_ESTRANGEIRA;
 }
 /* ----------------------------------------------------------------------------------------------
@@ -847,6 +870,220 @@ void op_delete(Lista *toDeleteTuples, char *tabelaName) {
 
     printf("DELETED %d %s\n", countDeletedTuples, (countDeletedTuples != 1) ? "rows" : "row");
 
+
+}
+
+/* ----------------------------------------------------------------------------------------------
+    Objetivo:   Valida os dados de atualização antes de executar a operação.
+    Parametros: Dados de atualização, Esquema da tabela, Objeto da tabela.
+    Retorno:    int 1 (Sucesso) ou 0 (Erro).
+   ---------------------------------------------------------------------------------------------*/
+int validate_update(inf_update *updateData, tp_table *esquema, struct fs_objects objeto) {
+    // Validação dos dados de atualização
+    for(int j = 0; j < updateData->count; j++) {
+        int found = 0;
+        // Verifica se a coluna solicitada existe no esquema da tabela
+        for(int i = 0; i < objeto.qtdCampos; i++) {
+            if(strcmp(esquema[i].nome, updateData->colunas[j]) == 0) {
+                found = 1;
+                
+                // Validação de Chave Primária (PK) impedindo a alteração
+                if(esquema[i].chave == PK) {
+                    printf("ERROR: Cannot update Primary Key column '%s'. Integrity violation risk.\n", updateData->colunas[j]);
+                    return 0;
+                }
+
+                // Validação de Chave Estrangeira (FK) verificando se o novo valor existe na tabela referenciada
+                if(esquema[i].chave == FK) {
+                    if (strlen(esquema[i].tabelaApt) != 0 && strlen(esquema[i].attApt) != 0) {
+                        column tempCol;
+                        memset(&tempCol, 0, sizeof(column));
+                        strcpy(tempCol.nomeCampo, esquema[i].nome);
+                        tempCol.tipoCampo = esquema[i].tipo;
+                        
+                        int erroFK = verificaChaveFK(updateData->tabela, &tempCol, esquema[i].nome, updateData->values[j],
+                                                   esquema[i].tabelaApt, esquema[i].attApt);
+                        
+                        if (erroFK != SUCCESS) {
+                            printf("ERROR: Invalid reference to \"%s.%s\". The value \"%s\" does not exist.\n", 
+                                   esquema[i].tabelaApt, esquema[i].attApt, updateData->values[j]);
+                            return 0;
+                        }
+                    }
+                }
+
+                // Validação de Tipo Inteiro garantindo que o valor contém apenas dígitos válidos.
+                if(esquema[i].tipo == 'I') {
+                    char *val = updateData->values[j];
+                    for(int k=0; val[k]; k++) {
+                        if(k==0 && val[k]=='-') continue;
+                        if(val[k] < '0' || val[k] > '9') {
+                            printf("ERROR: Invalid integer value '%s' for column '%s'.\n", val, esquema[i].nome);
+                            return 0;
+                        }
+                    }
+                }
+                
+                // Validação de Tipo Double garantindo formato numérico válido.
+                if(esquema[i].tipo == 'D') {
+                     char *val = updateData->values[j];
+                     int dots = 0;
+                     for(int k=0; val[k]; k++) {
+                        if(k==0 && val[k]=='-') continue;
+                        if(val[k] == '.') { dots++; continue; }
+                        if(val[k] < '0' || val[k] > '9') {
+                             printf("ERROR: Invalid double value '%s' for column '%s'.\n", val, esquema[i].nome);
+                             return 0;
+                        }
+                     }
+                     // Verifica se há mais de um ponto decimal
+                     if(dots > 1) {
+                         printf("ERROR: Invalid double value '%s' for column '%s'.\n", val, esquema[i].nome);
+                         return 0;
+                     }
+                }
+                break;
+            }
+        }
+        // Caso a coluna não seja encontrada no esquema da tabela
+        if (!found) {
+            printf("ERROR: Column '%s' not found in table '%s'.\n", updateData->colunas[j], updateData->tabela);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* ----------------------------------------------------------------------------------------------
+  Objetivo: Atualiza o índice B+ de uma coluna, se existir.
+  Parâmetros: coluna (esquema), tableName (nome da tabela), newValue (novo valor no índice), offset (offset da tupla no arquivo).
+  Retorno: void.
+  ----------------------------------------------------------------------------------------------*/
+void updateIndex(tp_table *coluna, char *tableName, char *newValue, int offset) {
+    // Constrói o nome do arquivo de índice
+    char *nomeIndice = (char *)uffsRealloc(NULL, sizeof(char) * 
+        (strlen(connected.db_directory) + strlen(tableName) + strlen(coluna->nome) + 1));
+    strcpy(nomeIndice, connected.db_directory);
+    strcat(nomeIndice, tableName);
+    strcat(nomeIndice, coluna->nome);
+
+    // Carrega a árvore B+ do disco
+    nodo *raiz = constroi_bplus(nomeIndice);
+
+    if (raiz) {
+        // Insere a nova chave no índice apontando para o mesmo offset
+        insere_indice(raiz, newValue, nomeIndice, offset);
+    }
+    /* nomeIndice lives in TEMPORARY context; released via uffsFree(TEMPORARY) */
+}
+
+/* ----------------------------------------------------------------------------------------------
+    Objetivo:   Executa a operação de UPDATE em uma lista de tuplas.
+    Parametros: 
+        - toUpdateTuples: Lista encadeada contendo as referências (Página/Offset) das tuplas a serem alteradas.
+        - updateData: Estrutura contendo os novos valores e colunas a serem atualizadas.
+    Retorno:    void.
+   ---------------------------------------------------------------------------------------------*/
+void op_update(Lista *toUpdateTuples, inf_update *updateData) {
+    tp_table *esquema;
+    struct fs_objects objeto = leObjeto(updateData->tabela);
+    esquema = leSchema(objeto); 
+
+    // Valida os dados de atualização antes de prosseguir
+    if (!validate_update(updateData, esquema, objeto)) {
+        return;
+    }
+
+    // Inicializa o buffer para manipulação das páginas em memória
+    tp_buffer *bufferpoll = initbuffer();
+    int countUpdatedTuples = 0;
+
+    if(bufferpoll == ERRO_DE_ALOCACAO){
+        printf("ERROR: no memory available to allocate buffer.\n");
+        return;
+    }
+
+    // Carrega as páginas do disco para o buffer
+    int tuplaCount = 0, erro;
+    do {
+        erro = colocaTuplaBuffer(bufferpoll, tuplaCount, esquema, objeto);
+        tuplaCount++;
+    } while(erro == SUCCESS || erro == ERRO_LEITURA_DADOS_DELETADOS);
+    tuplaCount--; 
+
+    //Atualização das tuplas
+    for (Nodo *temp = toUpdateTuples->prim; temp; temp = temp->prox) {
+        tupla *t = (tupla *)temp->inf;
+         
+        // Ponteiro para o início da tupla na página do buffer
+        char *tuplePtr = bufferpoll[t->bufferPage].data + t->offset;
+
+        // Ponteiro para a área de dados da tupla (após o byte de controle e os bytes de null bitmap)
+        char *dataBase = tuplePtr + 1 + objeto.qtdCampos; 
+
+        // Offset inicial para percorrer os campos da tupla
+        int payloadOffset = 0; 
+
+        // Itera sobre as colunas do esquema da tabela
+        for(int i = 0; i < objeto.qtdCampos; i++) {
+            // Verifica se a coluna atual (i) está na lista de colunas para atualizar (j)
+            for(int j = 0; j < updateData->count; j++) {
+                if(strcmp(esquema[i].nome, updateData->colunas[j]) == 0) {
+
+                    // Se a coluna tiver um índice criado (BT), atualiza o índice B+ com o novo valor
+                    if (esquema[i].chave == BT) {
+                        updateIndex(&esquema[i], updateData->tabela, updateData->values[j], t->offset);
+                    }
+
+                    // Atualiza o valor da coluna na tupla em memória
+                    char *fieldPtr = dataBase + payloadOffset;
+
+                    if(esquema[i].tipo == 'S' || esquema[i].tipo == 'C') {
+
+                        // Validação de tamanho para Strings
+                        if (strlen(updateData->values[j]) > esquema[i].tam) {
+                            printf("WARNING: Value for column '%s' truncated (Size: %d, Max: %d).\n", 
+                            esquema[i].nome, (int)strlen(updateData->values[j]), esquema[i].tam);
+                        }
+
+                        // Limpa o espaço da coluna antes de copiar o novo valor
+                        memset(fieldPtr, '\0', esquema[i].tam);
+                        strncpy(fieldPtr, updateData->values[j], esquema[i].tam);
+
+                    } else if(esquema[i].tipo == 'I') {
+                        
+                        // Converte ASCII -> Int e copia os bytes
+                        int val = atoi(updateData->values[j]); 
+                        memcpy(fieldPtr, &val, sizeof(int));
+                    } else if(esquema[i].tipo == 'D') {
+                        
+                        // Converte ASCII -> Double e copia os bytes
+                        double val = atof(updateData->values[j]);
+                        memcpy(fieldPtr, &val, sizeof(double));
+                    }
+                }
+            }
+
+            // Avança o offset para a próxima coluna na memória
+            payloadOffset += esquema[i].tam;
+        }
+
+        bufferpoll[t->bufferPage].db = 1; // Marca a página como "suja" (modificada)
+        countUpdatedTuples++;
+    }
+
+    // Grava as páginas modificadas de volta ao disco, usando o tamanho efetivo da página
+    for (int p = 0; p < PAGES && bufferpoll[p].nrec; p++) {
+        if(bufferpoll[p].db) { 
+             int result = writeBufferToDisk(&bufferpoll[p], &objeto, p, bufferpoll[p].position);
+             if (!result) {
+                 fprintf(stderr, "ERROR: failed to persist changes to disk\n");
+                 return;
+             }
+        }
+    }
+
+    printf("UPDATED %d %s\n", countUpdatedTuples, (countUpdatedTuples != 1) ? "rows" : "row");
 
 }
 

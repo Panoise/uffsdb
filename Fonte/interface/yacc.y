@@ -50,9 +50,9 @@ int yywrap() {
         CLEAR       CONTR       WHERE       OPERADOR    RELACIONAL
         LOGICO      ASTERISCO   SINAL       FECHA_P     ABRE_P
         STRING      INDEX       ON          IMPLEMENT   HISTORY 
-        DELETE      DELETE_HISTORY;
+        DELETE      DELETE_HISTORY          UPDATE       SET;
 %%
-start: insert | select | delete | create_table | create_database | drop_table | drop_database
+start: insert | select | delete | create_table | update | create_database | drop_table | drop_database
      | table_attr | list_tables | connection | exit_program | semicolon {GLOBAL_PARSER.consoleFlag = 1; return 0;}
      | help_pls | list_databases | clear | contributors | create_index | history_pls | delete_history_pls
      | qualquer_coisa | implement | /*epsilon*/;
@@ -234,6 +234,18 @@ atributo: OBJECT {setColumnBtreeCreate(yytext);}
 /* DELETE */
 delete: DELETE FROM {setMode(OP_DELETE); resetQuery();} table_query where semicolon { return 0; };
 
+/* UPDATE */
+update: UPDATE {setMode(OP_UPDATE); resetUpdateData();} table_update SET set_list where semicolon { return 0; };
+
+table_update: OBJECT {setTableUpdate(yylval.strval);};
+
+set_list: set_assignment | set_assignment ',' set_list;
+
+set_assignment: OBJECT {setUpdateColumn(yylval.strval);} RELACIONAL update_value {/* column = value processado */};
+
+update_value: VALUE {setUpdateValue(yylval.strval, 'D');}
+            | NUMBER {setUpdateValue(yylval.strval, 'I');}
+            | STRING {setUpdateValue(yylval.strval, 'S');};
 
 /* END */
 %%

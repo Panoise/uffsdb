@@ -5,7 +5,7 @@ Universidade Federal da Fronteira Sul – UFFS
 Curso: Ciência da Computação
 Componente Curricular: Banco de Dados II
 Professor: Dr. Denio Duarte
-Alunos: Alessandro , Marco veiga, Rhuan, Thaynnã
+Alunos: Alessandro Corrêa, Marco veiga, Rhuan Campos, Thaynnã Tomaz
 
 ##############LEIA-ME PARTE 6 #############################################################################################################
 

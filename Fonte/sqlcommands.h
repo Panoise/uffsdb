@@ -42,6 +42,27 @@ Lista *op_select(inf_query *);
    ---------------------------------------------------------------------------------------------*/
 void op_delete(Lista *toDeleteTuples, char *tabelaName);
 
+/* ----------------------------------------------------------------------------------------------
+    Objetivo:   Valida os dados de atualização antes de executar a operação.
+    Parametros: Dados de atualização, Esquema da tabela, Objeto da tabela.
+    Retorno:    int 1 (Sucesso) ou 0 (Erro).
+   ---------------------------------------------------------------------------------------------*/
+int validate_update(inf_update *updateData, tp_table *esquema, struct fs_objects objeto);
+
+/* ----------------------------------------------------------------------------------------------
+  Objetivo: Atualiza o índice B+ de uma coluna, se existir.
+  Parâmetros: coluna (esquema), tableName (nome da tabela), newValue (novo valor no índice), offset (offset da tupla no arquivo).
+  Retorno: void.
+  ----------------------------------------------------------------------------------------------*/
+void updateIndex(tp_table *coluna, char *tableName, char *newValue, int offset);
+
+/* ----------------------------------------------------------------------------------------------
+    Objetivo:   Utilizada para atualizar tuplas.
+    Parametros: Lista de tuplas a atualizar, estrutura com dados do update.
+    Retorno:    void.
+   ---------------------------------------------------------------------------------------------*/
+void op_update(Lista *toUpdateTuples, inf_update *updateData);
+  
 int afterTrigger(Lista *resultado, inf_query *query);
 
 Lista *handleTableOperation(inf_query *select, char tipo);
@@ -149,3 +170,4 @@ inf_where *novoResWhere(void *tk,int id);
 int verifyFieldName(char **, int );
 ////
 int verifyFK(char *, char *);
+
